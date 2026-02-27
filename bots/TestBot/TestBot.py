@@ -1,13 +1,20 @@
 from robocode_tank_royale.bot_api.bot import Bot
-from robocode_tank_royale.bot_api.events import ScannedBotEvent, HitByBulletEvent
+from robocode_tank_royale.bot_api.events import ScannedBotEvent, HitByBulletEvent, BulletFiredEvent
+from robocode_tank_royale.schema import BulletState
 
 
 # ------------------------------------------------------------------
 # TestBot
 # ------------------------------------------------------------------
 class TestBot(Bot):
+    bullets: list[BulletState] = []
+    bots: map[int, ScannedBotEvent] = {}
+
     def run(self) -> None:
         """Called when a new round is started -> initialize and do some movement."""
+
+
+
         # Repeat while the bot is running
         while self.running:
             self.forward(100)
@@ -26,6 +33,9 @@ class TestBot(Bot):
         bearing = self.calc_bearing(e.bullet.direction)
         # Turn 90 degrees to the bullet direction based on the bearing
         self.turn_right(90 - bearing)
+
+    def on_bullet_fired(self, e: BulletFiredEvent) -> None:
+        pass
 
 
 def main() -> None:
