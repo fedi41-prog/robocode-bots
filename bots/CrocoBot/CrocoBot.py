@@ -44,16 +44,25 @@ class CrocoBot(Bot):
                 print(len(facing_at_us))
                 self.aim_at(facing_at_us[0][0])
                 self.set_fire(1)
+
                 self.radar_color = RED
+                self.turret_color = RED
             else:
                 self.radar_color = GREEN
+                self.turret_color = GREEN
 
-
-                self.set_turn_gun_right(120)
-                self.set_turn_right(120)
-                self.forward(10)
-
+                self.init_fast_scan()
             self.go()
+
+    def init_fast_scan(self):
+        self.set_turn_gun_right(60)
+        self.set_turn_right(60)
+        self.set_turn_radar_right(60)
+
+    def stop_fast_scan(self):
+        self.set_turn_gun_right(0)
+        self.set_turn_right(0)
+        self.set_turn_radar_right(0)
 
 
     def aim_at(self, bot:ScannedBotEvent):
@@ -94,6 +103,7 @@ class CrocoBot(Bot):
         if enemy_to_bot_direction - 10 < enemy_direction < enemy_to_bot_direction + 10:
             tags.append("facing at us")
             print("danger")
+            self.stop_fast_scan()
 
         self.enemies[e.scanned_bot_id] = (e, tags)
         self.target_bot = e
