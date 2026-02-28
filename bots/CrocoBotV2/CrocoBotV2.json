@@ -1,0 +1,13 @@
+{
+  "name": "CrocoBotV2",
+  "version": "1.0",
+  "authors": [
+    "Fedor Karev"
+  ],
+  "description": "a Crocodile bot",
+  "homepage": "",
+  "countryCodes": [
+  ],
+  "platform": "Python",
+  "programmingLang": "Python 3"
+}
