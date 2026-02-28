@@ -3,17 +3,21 @@ import math
 from robocode_tank_royale.bot_api import Color, BulletState
 from robocode_tank_royale.bot_api.bot import Bot
 from robocode_tank_royale.bot_api.events import ScannedBotEvent, HitByBulletEvent, BulletFiredEvent, BotDeathEvent, \
-    TickEvent, Condition, CustomEvent
+    TickEvent, Condition, CustomEvent, HitBotEvent, HitWallEvent
 import asyncio
 
 GREEN = Color.from_rgb(0x00, 0xFF, 0x00)
 RED = Color.from_rgb(0xFF, 0x00, 0x00)
 WHITE = Color.from_rgb(0xFF, 0xFF, 0xFF)
+BLUE = Color.from_rgb(0x00, 0x00, 0xFF)
 COLORS = [
     WHITE,
     RED,
     GREEN
 ]
+
+STATE_SCANNING = 0
+STATE_LOCK_TARGET = 1
 # ------------------------------------------------------------------
 # CrocoBot
 # ------------------------------------------------------------------
@@ -21,13 +25,19 @@ COLORS = [
 # ------------------------------------------------------------------
 class CrocoBot(Bot):
 
+
+
     def __init__(self):
         super().__init__()
         self.bullets: list[BulletState] = []
         self.enemies: dict[int, tuple[ScannedBotEvent, list[str]]] = {}
         self.target_bot: ScannedBotEvent = None
         self.color_tick = 0
-        self.spotted_enemies = 0
+        self.spotted_enemies: set[int] = set()
+        self.move_direction = 1
+
+        self.bot_state = STATE_SCANNING
+
 
     def run(self) -> None:
         """Called when a new round is started -> initialize and do some movement."""
@@ -42,24 +52,26 @@ class CrocoBot(Bot):
 
         # Repeat while the bot is running
         while self.running:
-            #self.target_speed = 5
-            facing_at_us = self.get_all_with_tag("facing at us")
-            if len(facing_at_us) > 0:
-                self.aim_at(facing_at_us[0][0])
-                self.set_fire(2)
+            self.update_color()
+            if self.bot_state == STATE_SCANNING:
+                facing_at_us = self.get_all_with_tag("facing at us")
+                if len(facing_at_us) > 0:
+                    self.bot_state = STATE_LOCK_TARGET
 
-                self.radar_color = RED
-                self.turret_color = RED
-            else:
-                self.radar_color = GREEN
-                self.turret_color = GREEN
+                    self.target_bot = facing_at_us[0]
 
+                else:
+
+                    self.update_radar()
+
+
+            if self.bot_state == STATE_LOCK_TARGET:
                 self.align_radar()
-                ticks_before_scan -= 1
+                self.aim_at(self.target_bot[0])
 
-                self.update_radar()
+            self.update_movement()
+            self.update_gun()
 
-            if self.can_hit_any_bot(): self.set_fire(2)
             self.go()
 
     def can_hit_any_bot(self):
@@ -73,8 +85,25 @@ class CrocoBot(Bot):
         return False
 
     def can_hit(self, x, y, radius=18):
+        # Richtungsvektor Gun
+        theta = math.radians(90 - self.gun_direction)
+        dx, dy = math.cos(theta), math.sin(theta)
+
+        # Vektor zum Ziel
+        vx, vy = x - self.x, y - self.y
+
+        # Projektion (Skalarprodukt)
+        forward = vx * dx + vy * dy
+        if forward > 0:
+            return False  # Ziel ist hinter uns
+
         dist = distance_point_to_line((self.x, self.y), self.gun_direction, (x, y))
-        return dist <= radius
+        return dist <= radius and angle_diff(
+            self.direction_to(x, y),
+            self.gun_direction
+        ) <= 45
+
+
 
     def align_radar(self):
         bearing = self.calc_radar_bearing(self.gun_direction)
@@ -84,29 +113,62 @@ class CrocoBot(Bot):
     def stop_radar(self):
         self.radar_turn_rate = 0
 
-    def update_radar(self):
-        if self.gun_turn_rate == 0:
+    def update_gun(self):
+        if self.can_hit_any_bot(): self.set_fire(2)
+
+        if self.bot_state == STATE_SCANNING:
             self.gun_turn_rate = self.max_gun_turn_rate
-        if self.spotted_enemies >= self.enemy_count:
-            self.gun_turn_rate *= -1
-            self.spotted_enemies = 0
+
+        #if self.target_bot:
+        #self.aim_at(self.target_bot)
+
+    def update_radar(self):
+        if self.radar_turn_rate == 0:
+            self.radar_turn_rate = self.max_radar_turn_rate
+        if len(self.spotted_enemies) >= self.enemy_count:
+            self.radar_turn_rate *= -1
+
+            self.spotted_enemies = set()
+    def update_movement(self):
+
+        self.target_speed = self.max_speed * self.move_direction
+        if self.is_near_wall(150):
+            bearing = self.bearing_to(self.arena_width/2, self.arena_height/2)
+            self.set_turn_left(bearing*self.move_direction)
+            print("near to wall!")
+
+            self.target_speed /= 2
+
+    def on_hit_bot(self, bot_hit_bot_event: HitBotEvent) -> None:
+        self.move_direction *= -1
+
+    def on_hit_wall(self, bot_hit_wall_event: HitWallEvent) -> None:
+        self.move_direction *= -1
+
+    def is_near_wall(self, margin=18*3):
+        if margin < self.x < self.arena_width - margin and margin < self.y < self.arena_height - margin:
+            return False
+        return True
 
 
     def aim_at(self, bot:ScannedBotEvent):
         bearing = self.gun_bearing_to(bot.x, bot.y)
 
-        self.set_turn_gun_left(bearing/2)
-        self.set_turn_left(bearing/2)
+        self.set_turn_gun_left(bearing)
         bearing2 = self.bearing_to(bot.x, bot.y)
-        self.set_turn_left(90 - bearing2)
+        self.set_turn_left((180 - bearing2)%180)
 
 
     def update_color(self):
-        self.color_tick += 1
-        if self.color_tick >= len(COLORS):
-            self.color_tick = 0
-
-        self.body_color = COLORS[self.color_tick]
+        if self.bot_state == STATE_SCANNING:
+            self.radar_color = BLUE
+            self.turret_color = BLUE
+        elif self.bot_state == STATE_LOCK_TARGET:
+            self.radar_color = RED
+            self.turret_color = RED
+        else:
+            self.radar_color = GREEN
+            self.turret_color = GREEN
 
 
     def get_all_with_tag(self, tag:str) -> list[tuple[ScannedBotEvent, list]]:
@@ -123,7 +185,7 @@ class CrocoBot(Bot):
         #d = self.direction_to(e.x, e.y)
         #self.set_turn_gun_right(d)
 
-        self.spotted_enemies += 1
+        self.spotted_enemies.add(e.scanned_bot_id)
         self.update_radar()
 
         enemy_direction = e.direction
@@ -133,7 +195,6 @@ class CrocoBot(Bot):
         tags = []
 
         bullet_laser_dist = distance_point_to_line((e.x, e.y), enemy_direction, (self.x, self.y))
-        print(e.scanned_bot_id, bullet_laser_dist)
 
         if bullet_laser_dist <= 18:
             tags.append("facing at us")
@@ -142,7 +203,6 @@ class CrocoBot(Bot):
 
 
         self.enemies[e.scanned_bot_id] = (e, tags)
-        self.target_bot = e
 
         self.aim_at(e)
 
@@ -185,7 +245,9 @@ class CrocoBot(Bot):
 
 
 
-
+def angle_diff(a, b):
+    d = (a - b + 180) % 360 - 180
+    return abs(d)
 
 def distance_point_to_line(line_point, line_angle_deg, target_point):
     """
