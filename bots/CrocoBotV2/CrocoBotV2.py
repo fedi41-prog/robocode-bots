@@ -7,6 +7,7 @@ from robocode_tank_royale.bot_api.bot import Bot
 from robocode_tank_royale.bot_api.events import ScannedBotEvent, HitByBulletEvent, BulletFiredEvent, BotDeathEvent, \
     TickEvent, Condition, CustomEvent, HitBotEvent, HitWallEvent
 
+from util import weighted_average
 
 GREEN = Color.from_rgb(0x00, 0xFF, 0x00)
 RED = Color.from_rgb(0xFF, 0x00, 0x00)
@@ -62,17 +63,17 @@ class CrocoBotV2(Bot):
         while self.running:
             self.update_color()
             if self.bot_state == STATE_IDLE:
-                #self.rotate_perpendicular_to_enemies()
+                self.rotate_perpendicular_to_enemies()
                 self.gun_turn_rate = self.max_gun_turn_rate
 
-                #self.forward(50 * self.move_direction)
+                self.forward(50 * self.move_direction)
 
-                self.set_forward(500)
-                self.set_turn_left(90)
+                #self.set_forward(500)
+                #self.set_turn_left(90)
 
                 self.go()
 
-                #self.move_direction *= -1
+                self.move_direction *= -1
             if self.bot_state == STATE_TARGET:
                 self.gun_turn_rate = self.max_gun_turn_rate
                 self.rotate_perpendicular_to_bot(self.target_id)
@@ -241,40 +242,6 @@ class CrocoBotV2(Bot):
 
 
 
-def weighted_average(values, weights) -> float:
-    if sum(weights) == 0 or len(values) < 0: return None
-    return sum(w * g for w, g in zip(values, weights)) / sum(weights)
-
-def angle_diff(a, b):
-    d = (a - b + 180) % 360 - 180
-    return abs(d)
-
-def distance_point_to_line(line_point, line_angle_deg, target_point):
-    """
-    Berechnet den Abstand eines Punktes zu einer Geraden.
-
-    :param line_point: Tuple (x0, y0) Punkt auf der Geraden
-    :param line_angle_deg: Winkel der Geraden in Grad (Robocode-style)
-    :param target_point: Tuple (x1, y1) Punkt, zu dem der Abstand berechnet wird
-    :return: Abstand als float
-    """
-    x0, y0 = line_point
-    x1, y1 = target_point
-
-    # Robocode: 0° = nach oben, 90° = rechts
-    # konvertieren zu Standard-Koordinaten (0° = rechts, counter-clockwise)
-    theta_rad = math.radians(90 - line_angle_deg)
-
-    # Richtungsvektor der Geraden
-    dx = math.cos(theta_rad)
-    dy = math.sin(theta_rad)
-
-    # Abstand = |(P - A) x d| / |d|
-    # Kreuzprodukt in 2D: (x1-x0, y1-y0) x (dx, dy) = (x1-x0)*dy - (y1-y0)*dx
-    numerator = abs((x1 - x0) * dy - (y1 - y0) * dx)
-    denominator = math.hypot(dx, dy)  # ||d||, hier =1, da normiert
-    distance = numerator / denominator
-    return distance
 
 
 async def main() -> None:
