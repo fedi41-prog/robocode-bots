@@ -1,3 +1,6 @@
+import math
+
+
 def weighted_average(values, weights) -> float:
     if sum(weights) == 0 or len(values) < 0: return None
     return sum(w * g for w, g in zip(values, weights)) / sum(weights)
@@ -32,3 +35,20 @@ def distance_point_to_line(line_point, line_angle_deg, target_point):
     denominator = math.hypot(dx, dy)  # ||d||, hier =1, da normiert
     distance = numerator / denominator
     return distance
+
+def pos_to_id(x:int, y:int, w:int):
+    return x + y * w
+
+def id_to_pos(i:int, w:int):
+    x = i % w
+    y = i // w
+    return x, y
+
+if __name__ == "__main__":
+
+    x, y = 9, 23
+    w = 60
+    i = pos_to_id(x, y, w)
+    print(i)
+
+    print(id_to_pos(i, w))
