@@ -102,7 +102,7 @@ def render_loop(bot):
         xd, yd = dir_to_vector(bot_dir + 90, 50)
 
         pygame.draw.line(screen, (0, 255, 0), pg_pos, (pg_pos[0] + xd, pg_pos[1] + yd), 3)
-        pygame.draw.line(screen, (0, 255, 0), pg_pos, (pg_pos[0] - xd, pg_pos[1] - yd), 3)
+        #pygame.draw.line(screen, (0, 255, 0), pg_pos, (pg_pos[0] - xd, pg_pos[1] - yd), 3)
         pygame.draw.line(screen, (255, 255, 255), pg_pos, (pg_pos[0] + xr, pg_pos[1] + yr), 3)
 
         if danger_vector is not None:

@@ -81,7 +81,7 @@ def calculate_danger_vector(enemies, x, y, w, h):
         vy += dy / dist * strength
 
     # wall repulsion
-    wall_strength = 5000
+    wall_strength = 500
 
     vx += wall_strength / (x + 1) ** 2
     vx -= wall_strength / (w - x + 1) ** 2

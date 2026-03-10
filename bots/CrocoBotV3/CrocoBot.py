@@ -44,6 +44,7 @@ class CrocoBot(Bot):
 
     def __init__(self):
         super().__init__()
+        self.real_danger_vector: tuple[float, float] = None
         self.danger_vector: tuple[float, float] = None
         #self.danger_map: list[float] = []
         #self.danger_map_scale = 10
@@ -70,6 +71,7 @@ class CrocoBot(Bot):
         self.move_direction = 1
         self.bot_state = STATE_IDLE
         self.danger_vector = None
+        self.real_danger_vector = None
         self.enemy_projection = {}
 
         threading.Thread(target=self.compute_loop, daemon=True).start()
@@ -140,14 +142,17 @@ class CrocoBot(Bot):
                 enemies = self.enemies.copy()
 
 
-            dvx, dvy = normalize(calculate_danger_vector(enemies, self.x, self.y, self.arena_width, self.arena_height))
+            dvx, dvy = calculate_danger_vector(enemies, self.x, self.y, self.arena_width, self.arena_height)
 
-            danger_vector = dvx, -dvy
+            danger_vector = normalize((dvx, -dvy))
+            real_danger_vector = (dvx, -dvy)
+
 
             enemy_projection = project_enemy_movement(enemies)
 
             with self.lock:
                 self.danger_vector = danger_vector
+                self.real_danger_vector = real_danger_vector
                 self.enemy_projection = enemy_projection
 
     def on_tick(self, tick_event: TickEvent) -> None:
@@ -156,36 +161,44 @@ class CrocoBot(Bot):
             bot_state = self.bot_state
             move_direction = self.move_direction
             danger_vector = self.danger_vector
+            real_dv = self.real_danger_vector
 
         if bot_state == STATE_IDLE:
 
             if danger_vector is not None:
                 #self.go_to_optimal_direction()
                 nx, ny = danger_vector
-                dr = vector_to_dir(nx, ny)
+                dr = (vector_to_dir(nx, ny)+270) % 360
                 self.go_to_direction(dr, 50)
+                print(real_dv)
+
 
 
             self.gun_turn_rate = self.max_gun_turn_rate
 
     def go_to_direction(self, d, dist):
-        d += 270
-        d %= 360
 
         bearing = self.calc_bearing(d)
         self.set_turn_left(bearing)
-        self.set_forward(dist)
 
-
+        if abs(bearing) < 90:
+            self.set_forward(dist)
+        else:
+            self.set_forward(-dist)
 
 def main():
     bot = CrocoBot()
 
-    bot_thread = threading.Thread(target=bot.start, daemon=True)
-    bot_thread.start()
+    debug = False
 
+    if debug:
+        bot_thread = threading.Thread(target=bot.start, daemon=True)
+        bot_thread.start()
+        render_loop(bot)
+    else:
 
-    render_loop(bot)
+        bot.start()
+
 
 
 
