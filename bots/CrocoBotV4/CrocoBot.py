@@ -44,6 +44,7 @@ class CrocoBot(Bot):
         self.debug = debug
         self.danger_factor = 0
         self.aim_angle_range = ()
+        self.spotted_enemies = set()
 
         self.gun_dir = 1
 
@@ -54,13 +55,13 @@ class CrocoBot(Bot):
 
 
     def run(self) -> None:
-        self.body_color = Color.from_hex_color("#ffbe0b")
-        self.turret_color = Color.from_hex_color("#fb5607")
-        self.radar_color = Color.from_hex_color("#fb5607")
-        self.scan_color = Color.from_hex_color("#8ecae6")
-        self.bullet_color = Color.from_hex_color("#ff006e")
-        self.tracks_color = Color.from_hex_color("#ffbe0b")
-        self.gun_color = Color.from_hex_color("#ff006e")
+        self.body_color = Color.from_hex_color("#6a994e")
+        self.turret_color = Color.from_hex_color("#6a994e")
+        self.radar_color = Color.from_hex_color("#a7c957")
+        self.scan_color = Color.from_hex_color("#a7c957")
+        self.bullet_color = Color.from_hex_color("#bc4749")
+        self.tracks_color = Color.from_hex_color("#f2e8cf")
+        self.gun_color = Color.from_hex_color("#6a994e")
 
         self.enemies: dict[int, tuple[ScannedBotEvent, dict]] = {}
         self.bot_mode = MODE_IDLE
@@ -71,6 +72,7 @@ class CrocoBot(Bot):
         self.aim_angle_range = ()
 
         self.last_scanned_enemies = []
+        self.spotted_enemies = set()
 
         self.gun_dir = 1
 
@@ -78,6 +80,9 @@ class CrocoBot(Bot):
             self.arena_width,
             self.arena_height
         )
+
+        print(self.calc_gun_heat(0.1))
+
 
     def on_round_ended(self, round_ended_event: RoundEndedEvent) -> None:
         print(self.debug_state)
@@ -90,6 +95,8 @@ class CrocoBot(Bot):
             self.last_scanned_enemies.append(e.scanned_bot_id)
         else:
             self.last_scanned_enemies.append(e.scanned_bot_id)
+
+        self.spotted_enemies.add(e.scanned_bot_id)
 
         self.enemies[e.scanned_bot_id] = e
 
@@ -105,7 +112,7 @@ class CrocoBot(Bot):
             if self.bot_mode == MODE_IDLE:
                 if abs(self.gun_bearing_to(e.x, e.y)) < self.max_gun_turn_rate:
                     firepower = self.calculate_firepower(e)
-                    if self.gun_heat == 0 and firepower != 0:
+                    if self.gun_heat == 0 and firepower > 0.5:
                         self.aim_at(e.x, e.y)
                         self.set_fire(firepower)
                         self.bot_mode = MODE_AIMING
@@ -142,14 +149,13 @@ class CrocoBot(Bot):
         enemy_to_bot_direction = self.direction_to(enemy.x, enemy.y)
         distance = self.distance_to(enemy.x, enemy.y)
         direction_diff = abs(enemy_direction - enemy_to_bot_direction)
-        firepower = 0
 
-        if direction_diff < 10 or (direction_diff < 45 and enemy.speed == 0) or self.distance_to(enemy.x, enemy.y) < 50:
-            firepower = 3
-        elif direction_diff < 45:
-            firepower = 2
-        elif enemy.speed == 0:
-            firepower = 1
+        p = (
+                (0.75 if direction_diff == 0 else 0.75 / direction_diff) +
+                (1.25 if enemy.speed == 0 else 1.25 / enemy.speed) +
+                (1.5 if distance == 0 else 1.5 / (distance/5))
+        )
+        firepower = max(0.1, min(3.0, p))
 
         return firepower
     def aim_at(self, x, y):
@@ -189,7 +195,12 @@ class CrocoBot(Bot):
                     d0, d1 = abs(self.aim_angle_range[0]-self.gun_direction), abs(self.aim_angle_range[1]-self.gun_direction)
                     self.gun_turn_rate = self.max_gun_turn_rate if d0 < d1 else -self.max_gun_turn_rate
 
-                self.radar_turn_rate = self.max_radar_turn_rate
+
+                if self.radar_turn_rate == 0:
+                    self.radar_turn_rate = self.max_radar_turn_rate
+                if len(self.spotted_enemies) >= self.enemy_count:
+                    self.radar_turn_rate *= -1
+                    self.spotted_enemies = set()
         elif self.round_state == STATE_SHOWDOWN:
             if self.last_scanned_enemies[-1] in self.enemies:
                 enemy = self.enemies[self.last_scanned_enemies[-1]]
