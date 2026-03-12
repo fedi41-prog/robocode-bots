@@ -51,7 +51,7 @@ def to_pg_pos(p, h):
 def render_loop(debug_state:DebugState):
     print("render thread starting...")
 
-    while not debug_state.config_initialised:
+    while not debug_state.data_loaded:
         sleep(0.1)
 
     arena_width = debug_state.arena_width
@@ -80,8 +80,8 @@ def render_loop(debug_state:DebugState):
 
         screen.fill((0,0,0))
 
-        for idx, d in enemies.items():
-            e, _ = d
+        for idx, e in enemies.items():
+
 
             x, y = to_pg_pos((e.x, e.y), arena_height)
 

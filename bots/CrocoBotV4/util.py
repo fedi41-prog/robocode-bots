@@ -26,7 +26,7 @@ def calculate_danger_factor(enemies, arena_width, arena_height,  x: float, y: fl
     if len(enemies) == 0:
         return 0
 
-    for enemy, _ in enemies.values():
+    for enemy in enemies.values():
         dist = math.dist((enemy.x, enemy.y), (x, y))
 
         r = 10 / (dist + 18)
@@ -36,12 +36,12 @@ def calculate_danger_factor(enemies, arena_width, arena_height,  x: float, y: fl
     return res
 
 
-def calculate_danger_vector(enemies, x, y, w, h):
+def calculate_danger_vector(enemies:dict[int, ScannedBotEvent], x, y, w, h):
 
     vx = 0
     vy = 0
 
-    for enemy, _ in enemies.values():
+    for enemy in enemies.values():
 
         dx = x - enemy.x
         dy = y - enemy.y
@@ -139,14 +139,12 @@ class DebugState:
         self.arena_width = None
         self.arena_height = None
 
-        self.lock = threading.Lock()
-        self.config_initialised = False
+        self.data_loaded = False
 
     def set_config(self, arena_width, arena_height):
+
         self.arena_width = arena_width
         self.arena_height = arena_height
-
-        self.config_initialised = True
 
     def set(self,
             x,
@@ -159,17 +157,31 @@ class DebugState:
             real_danger_vector,
             aim_angle_range
             ):
-        with self.lock:
-            self.x = x
-            self.y = y
-            self.direction = direction
-            self.radar_direction = radar_direction
-            self.gun_direction = gun_direction
 
-            self.enemies = enemies
-            self.danger_vector = danger_vector
-            self.real_danger_vector = real_danger_vector
-            self.aim_angle_range = aim_angle_range
+        self.x = x
+        self.y = y
+        self.direction = direction
+        self.radar_direction = radar_direction
+        self.gun_direction = gun_direction
+
+        self.enemies = enemies
+        self.danger_vector = danger_vector
+        self.real_danger_vector = real_danger_vector
+        self.aim_angle_range = aim_angle_range
+        self.data_loaded = True
+
+    def __str__(self):
+        return f"""
+        {self.x}
+        {self.y}
+        {self.direction}
+        {self.radar_direction}
+        {self.gun_direction}
+        {self.enemies}
+        {self.danger_vector}
+        {self.real_danger_vector}
+        {self.aim_angle_range}
+"""
 
 
 

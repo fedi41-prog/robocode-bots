@@ -4,7 +4,7 @@ import threading
 from robocode_tank_royale.bot_api import Color
 from robocode_tank_royale.bot_api.bot import Bot
 from robocode_tank_royale.bot_api.events import ScannedBotEvent, BulletFiredEvent, BotDeathEvent, \
-    TickEvent
+    TickEvent, WonRoundEvent, GameEndedEvent, RoundEndedEvent
 
 from bots.CrocoBotV4.util import DebugState, calculate_danger_factor, angle_in_range, find_scan_range
 from util import calculate_danger_vector, vector_to_dir, normalize
@@ -14,10 +14,15 @@ RED = Color.from_rgb(0xFF, 0x00, 0x00)
 WHITE = Color.from_rgb(0xFF, 0xFF, 0xFF)
 BLUE = Color.from_rgb(0x00, 0x00, 0xFF)
 
-STATE_IDLE = 0
-STATE_MOVING = 1
-STATE_SCANNING = 2
-STATE_TARGET = 3
+MODE_IDLE = 0
+MODE_ESCAPE = 1
+MODE_RAM = 2
+MODE_AIMING = 3
+
+STATE_MULTI = 10
+STATE_ENDGAME = 11
+STATE_SHOWDOWN = 12
+
 
 
 # ------------------------------------------------------------------
@@ -34,17 +39,18 @@ class CrocoBot(Bot):
         super().__init__()
         self.real_danger_vector: tuple[float, float] = None
         self.danger_vector: tuple[float, float] = None
-        self.enemies: dict[int, tuple[ScannedBotEvent, dict]] = {}
+        self.enemies: dict[int, ScannedBotEvent] = {}
         self.debug_state = DebugState()
         self.debug = debug
         self.danger_factor = 0
         self.aim_angle_range = ()
 
-        self.spotted_enemies: set[id] = set()
-
         self.gun_dir = 1
 
-        self.bot_state = STATE_IDLE
+        self.bot_mode = MODE_IDLE
+        self.round_state = STATE_MULTI
+
+        self.last_scanned_enemies = []
 
 
     def run(self) -> None:
@@ -57,12 +63,14 @@ class CrocoBot(Bot):
         self.gun_color = Color.from_hex_color("#ff006e")
 
         self.enemies: dict[int, tuple[ScannedBotEvent, dict]] = {}
-        self.bot_state = STATE_IDLE
+        self.bot_mode = MODE_IDLE
+        self.round_state = STATE_MULTI
         self.danger_vector = None
         self.real_danger_vector = None
         self.danger_factor = 0
-        self.spotted_enemies = set()
         self.aim_angle_range = ()
+
+        self.last_scanned_enemies = []
 
         self.gun_dir = 1
 
@@ -71,54 +79,63 @@ class CrocoBot(Bot):
             self.arena_height
         )
 
+    def on_round_ended(self, round_ended_event: RoundEndedEvent) -> None:
+        print(self.debug_state)
+        print(len(self.last_scanned_enemies))
+
     def on_scanned_bot(self, e: ScannedBotEvent) -> None:
         """We saw another bot!"""
-        self.spotted_enemies.add(e.scanned_bot_id)
+        if e.scanned_bot_id in self.last_scanned_enemies:
+            self.last_scanned_enemies.remove(e.scanned_bot_id)
+            self.last_scanned_enemies.append(e.scanned_bot_id)
+        else:
+            self.last_scanned_enemies.append(e.scanned_bot_id)
 
-        data = {
-            "bullet_hit_count": 0
-        }
+        self.enemies[e.scanned_bot_id] = e
 
-        bot_state = self.bot_state
-        if e.scanned_bot_id in self.enemies:
-            data = self.enemies[e.scanned_bot_id][1]
-
-        data["last_seen"] = self.turn_number
-        self.enemies[e.scanned_bot_id] = (e, data)
-
-
-        if bot_state == STATE_IDLE:
+        if self.round_state == STATE_SHOWDOWN:
+            self.aim_at(e.x, e.y)
             if abs(self.gun_bearing_to(e.x, e.y)) < self.max_gun_turn_rate:
                 firepower = self.calculate_firepower(e)
                 if self.gun_heat == 0 and firepower != 0:
-                    self.aim_at(e.x, e.y)
                     self.set_fire(firepower)
-                    print("fire!!!")
 
-        self.clean_up_enemies()
+            self.rescan()
+        else:
+            if self.bot_mode == MODE_IDLE:
+                if abs(self.gun_bearing_to(e.x, e.y)) < self.max_gun_turn_rate:
+                    firepower = self.calculate_firepower(e)
+                    if self.gun_heat == 0 and firepower != 0:
+                        self.aim_at(e.x, e.y)
+                        self.set_fire(firepower)
+                        self.bot_mode = MODE_AIMING
+
+
+    def on_bullet_fired(self, bullet_fired_event: BulletFiredEvent) -> None:
+        if self.bot_mode == MODE_AIMING:
+            self.bot_mode = MODE_IDLE
+
     def clean_up_enemies(self):
-        if len(self.enemies) > self.enemy_count:
-            enemies = list(self.enemies.values())
-            enemies.sort(key=lambda x: x[1]["last_seen"], reverse=True)
-            for i in range(len(self.enemies) - self.enemy_count):
-                e = enemies.pop()
-                self.enemies.pop(e[0].scanned_bot_id)
+
+        if len(self.last_scanned_enemies) > self.enemy_count:
+            for _ in range(len(self.last_scanned_enemies) - self.enemy_count):
+                e = self.last_scanned_enemies.pop(0)
+                if e in self.enemies: self.enemies.pop(e)
+
+
 
     def calc_edge_bearing(self):
 
         min_bearing = float("inf")
         max_bearing = float("-inf")
 
-        for e, _ in self.enemies.values():
+        for e in self.enemies.values():
             b = self.bearing_to(e.x, e.y)
 
             max_bearing = max(b, max_bearing)
             min_bearing = min(b, min_bearing)
 
         return min_bearing, max_bearing
-
-    def on_bullet_fired(self, bullet_fired_event: BulletFiredEvent) -> None:
-        print("bullet fired!")
 
     def calculate_firepower(self, enemy: ScannedBotEvent):
         enemy_direction = enemy.direction
@@ -143,32 +160,46 @@ class CrocoBot(Bot):
     def on_bot_death(self, e: BotDeathEvent) -> None:
         if e.victim_id in self.enemies.keys():
             self.enemies.pop(e.victim_id)
-        #if self.target_id == e.victim_id:
-        #    self.target_id = 0
-            #self.change_state(STATE_IDLE)
+
 
     def on_tick(self, tick_event: TickEvent) -> None:
 
 
         self.update_danger()
-        if self.danger_vector is not None:
-            nx, ny = self.danger_vector
-            dr = (vector_to_dir(nx, ny)+270) % 360
-            self.go_to_direction(dr, 50)
+        self.update_round_state()
 
+        if self.round_state == STATE_MULTI or self.round_state == STATE_ENDGAME:
+            if self.bot_mode == MODE_IDLE:
+                if self.danger_vector is not None and self.turn_remaining == 0:
+                    nx, ny = self.danger_vector
+                    dr = (vector_to_dir(nx, ny)+270) % 360
 
-        self.aim_angle_range = find_scan_range([self.direction_to(e.x, e.y) for e, _ in self.enemies.values()])
+                    self.go_to_direction(dr, 50)
 
-        # GUN MOVEMENT
-        if not angle_in_range(self.gun_direction, self.aim_angle_range[0], self.aim_angle_range[1]) or self.gun_turn_rate == 0:
-            d0, d1 = abs(self.aim_angle_range[0]-self.gun_direction), abs(self.aim_angle_range[1]-self.gun_direction)
-            self.gun_turn_rate = self.max_gun_turn_rate if d0 < d1 else -self.max_gun_turn_rate
+                    #bearing = self.calc_bearing(dr)
+                    #if not -self.max_turn_rate < bearing < self.max_turn_rate:
+                    #    if bearing < 0: self.turn_rate = -self.max_turn_rate
+                    #    else: self.turn_rate = self.max_turn_rate
+                    #self.target_speed = self.max_speed
 
-        self.radar_turn_rate = self.max_radar_turn_rate
+                self.aim_angle_range = find_scan_range([self.direction_to(e.x, e.y) for e in self.enemies.values()])
 
-        #else:
-        #    t = list(self.enemies.values())[0][0]
-        #    self.aim_at(t.x, t.y)
+                # GUN MOVEMENT
+                if self.aim_angle_range is not None and (not angle_in_range(self.gun_direction, self.aim_angle_range[0], self.aim_angle_range[1]) or self.gun_turn_rate == 0):
+                    d0, d1 = abs(self.aim_angle_range[0]-self.gun_direction), abs(self.aim_angle_range[1]-self.gun_direction)
+                    self.gun_turn_rate = self.max_gun_turn_rate if d0 < d1 else -self.max_gun_turn_rate
+
+                self.radar_turn_rate = self.max_radar_turn_rate
+        elif self.round_state == STATE_SHOWDOWN:
+            if self.last_scanned_enemies[-1] in self.enemies:
+                enemy = self.enemies[self.last_scanned_enemies[-1]]
+
+                self.target_speed = self.max_speed / 2
+                self.turn_rate = self.max_turn_rate
+
+                if self.gun_direction != self.radar_direction:
+                    self.set_turn_radar_left(self.calc_radar_bearing(self.gun_direction))
+
 
 
         if self.debug:
@@ -183,7 +214,7 @@ class CrocoBot(Bot):
                 self.enemies.copy(),
                 self.danger_vector,
                 self.real_danger_vector,
-                self.aim_angle_range
+                self.aim_angle_range if self.enemy_count != 1 else None
             )
 
         self.clean_up_enemies()
@@ -207,6 +238,15 @@ class CrocoBot(Bot):
             self.set_forward(dist)
         else:
             self.set_forward(-dist)
+
+    def update_round_state(self):
+        if self.enemy_count == 1:
+            self.round_state = STATE_SHOWDOWN
+            print("SHOWDOWN")
+        elif self.enemy_count <= 4:
+            self.round_state = STATE_ENDGAME
+        else:
+            self.round_state = STATE_MULTI
 
 def main(debug=False):
     bot = CrocoBot(debug)
