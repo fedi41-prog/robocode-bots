@@ -6,7 +6,7 @@ from robocode_tank_royale.bot_api.bot import Bot
 from robocode_tank_royale.bot_api.events import ScannedBotEvent, BulletFiredEvent, BotDeathEvent, \
     TickEvent, WonRoundEvent, GameEndedEvent, RoundEndedEvent
 
-from bots.CrocoBotV4.util import DebugState, calculate_danger_factor, angle_in_range, find_scan_range
+from bots.CrocoBotV4.util import DebugState, calculate_danger_factor, angle_in_range, find_scan_range, dir_to_vector
 from util import calculate_danger_vector, vector_to_dir, normalize
 
 GREEN = Color.from_rgb(0x00, 0xFF, 0x00)
@@ -81,9 +81,6 @@ class CrocoBot(Bot):
             self.arena_height
         )
 
-        print(self.calc_gun_heat(0.1))
-
-
     def on_round_ended(self, round_ended_event: RoundEndedEvent) -> None:
         print(self.debug_state)
         print(len(self.last_scanned_enemies))
@@ -101,6 +98,9 @@ class CrocoBot(Bot):
         self.enemies[e.scanned_bot_id] = e
 
         if self.round_state == STATE_SHOWDOWN:
+            #TODO
+            #self.aim_with_projection(e, 2)
+            #self.aim_radar_at(e.x, e.y)
             self.aim_at(e.x, e.y)
             if abs(self.gun_bearing_to(e.x, e.y)) < self.max_gun_turn_rate:
                 firepower = self.calculate_firepower(e)
@@ -162,10 +162,46 @@ class CrocoBot(Bot):
         bearing = self.gun_bearing_to(x, y)
         self.set_turn_gun_left(bearing)
 
+    def aim_radar_at(self, x, y):
+        bearing = self.radar_bearing_to(x, y)
+        self.set_turn_radar_left(bearing)
+
 
     def on_bot_death(self, e: BotDeathEvent) -> None:
         if e.victim_id in self.enemies.keys():
             self.enemies.pop(e.victim_id)
+
+    # TODO
+    def aim_with_projection(self, enemy, firepower):
+        direction = self.calc_optimal_shoot_direction(enemy, firepower)
+        bearing = self.calc_gun_bearing(direction)
+        self.set_turn_gun_left(bearing)
+
+    def calc_optimal_shoot_direction(self, enemy:ScannedBotEvent, firepower:float):
+        if enemy is None: return None
+
+        bullet_speed = self.calc_bullet_speed(firepower)
+        nx, ny = None, None
+
+        for _ in range(50):
+
+            dist = self.distance_to(enemy.x, enemy.y)
+
+            #muss eigentlich angepasst werden für: nx, ny
+            dist_in_turns = dist / bullet_speed
+
+            dx, dy = dir_to_vector(enemy.direction, dist_in_turns * enemy.speed)
+
+            nx = enemy.x + dx
+            ny = enemy.x + dy
+
+            if abs(self.distance_to(nx, ny) - dist) < 10:
+                break
+
+        return self.direction_to(nx, ny)
+
+
+
 
 
     def on_tick(self, tick_event: TickEvent) -> None:
@@ -182,34 +218,20 @@ class CrocoBot(Bot):
 
                     self.go_to_direction(dr, 50)
 
-                    #bearing = self.calc_bearing(dr)
-                    #if not -self.max_turn_rate < bearing < self.max_turn_rate:
-                    #    if bearing < 0: self.turn_rate = -self.max_turn_rate
-                    #    else: self.turn_rate = self.max_turn_rate
-                    #self.target_speed = self.max_speed
-
                 self.aim_angle_range = find_scan_range([self.direction_to(e.x, e.y) for e in self.enemies.values()])
 
-                # GUN MOVEMENT
-                if self.aim_angle_range is not None and (not angle_in_range(self.gun_direction, self.aim_angle_range[0], self.aim_angle_range[1]) or self.gun_turn_rate == 0):
-                    d0, d1 = abs(self.aim_angle_range[0]-self.gun_direction), abs(self.aim_angle_range[1]-self.gun_direction)
-                    self.gun_turn_rate = self.max_gun_turn_rate if d0 < d1 else -self.max_gun_turn_rate
+                # GUN/RADAR MOVEMENT
+                self.gun_turn_rate = self.max_gun_turn_rate
 
-
-                if self.radar_turn_rate == 0:
-                    self.radar_turn_rate = self.max_radar_turn_rate
-                if len(self.spotted_enemies) >= self.enemy_count:
-                    self.radar_turn_rate *= -1
-                    self.spotted_enemies = set()
         elif self.round_state == STATE_SHOWDOWN:
-            if self.last_scanned_enemies[-1] in self.enemies:
-                enemy = self.enemies[self.last_scanned_enemies[-1]]
 
-                self.target_speed = self.max_speed / 2
-                self.turn_rate = self.max_turn_rate
 
-                if self.gun_direction != self.radar_direction:
-                    self.set_turn_radar_left(self.calc_radar_bearing(self.gun_direction))
+            self.target_speed = self.max_speed / 2
+            self.turn_rate = self.max_turn_rate
+
+            self.gun_turn_rate = self.max_gun_turn_rate
+            #self.radar_turn_rate = self.max_radar_turn_rate
+
 
 
 
